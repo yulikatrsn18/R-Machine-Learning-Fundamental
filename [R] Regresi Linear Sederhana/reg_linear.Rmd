@@ -1,0 +1,171 @@
+---
+title: "Regresi Linear Sederhana"
+output: html_document
+---
+
+Langkah pertama yang dilakukan adalah mengatur working directory pada R, serta tempatkan data yang tersedia pada file ini.
+
+```{r}
+setwd("D:\\DS\\R\\[R] Regresi Linear Sederhana")
+```
+
+##Input Data
+Langkah selanjutnya adalah menginput dataset, sebagai berikut :
+```{r}
+#Input Data
+salary_data <-read.csv("Salary_Data.csv", header = T)
+head(salary_data)
+attach(salary_data)
+```
+
+## Eksplorasi Data
+Langkah selanjutnya adalah melakukan eksplorasi terhadap dataset, sebagai berikut :
+```{r}
+#Melihat karakteristik data
+str(salary_data)
+```
+Terlihat bahwa terdiri dari 30 baris (observasi) dan 2 kolom (variabel).
+```{r}
+#Melihat statistika deskriptif pada data
+summary(salary_data)
+```
+Terlihat bahwa maksimum Salary adalah 122391 ribu rupiah, dan minimum Salary adalah 37731 ribu rupiah. Terlihat juga bahwa maksimum Years Experience adalah 10,5 tahun dan minimum Years Experience adalah 1,1 tahun.
+```{r}
+#Melihat apakah ada missing value pada data
+is.na(salary_data)
+```
+Terlihat bahwa tidak ada data yang kosong pada dataset.
+
+
+Langkah selanjutnya adalah memilih variabel respon dan variabel prediktor. Variabel respon yang digunakan adalah Salary dan variabel prediktor yang digunakan adalah YearsExperience.
+
+```{r}
+#Memilih variabel respon
+Y <- Salary
+head(Y)
+```
+```{r}
+#Memilih variabel prediktor
+X <- YearsExperience
+head(X)
+```
+
+
+Langkah selanjutnya adalah membuat plot data set, sebagai berikut :
+
+```{r pressure, echo=FALSE}
+library(ggplot2)
+
+ggplot(salary_data,aes(X,Y))+
+  geom_point(col="blue", size = 2)+
+  labs(title ="Plot Data YearsExperience Vs Salary",
+         x ="Years Experience (th)",
+         y ="Salary (ribu rp)")+
+  theme_minimal()
+```
+
+## Split Data
+Langkah selanjutnya adalah membagi data ke dalam Training data dan Testing data, sebagai berikut :
+
+```{r}
+library(caTools)
+set.seed(123)
+split <- sample.split(salary_data$Salary, SplitRatio = 0.8)
+salary_train <- subset(salary_data, split==TRUE)
+salary_test <-subset(salary_data, split==FALSE)
+
+X_train <- salary_train$YearsExperience
+Y_train <- salary_train$Salary
+X_test <- salary_test$YearsExperience
+Y_test <- salary_test$Salary
+```
+
+## Model Regresi Linear Sederhana
+Langkah selanjutnya adalah membuat model terhadap Training data, sebagai berikut :
+```{r}
+lm <- lm(Y_train~X_train, salary_train)
+summary(lm)
+```
+Sehingga diperoleh model regresi terhadap Training data adalah :
+$Y=26996+9152X$
+Interpretasi model :
+- Jika YearsExperience adalah 0 tahun maka Salary bernilai 26996 ribu rupiah
+- Jika YearsExperience meningkat 1 tahun maka Salary akan meningkat 9152 ribu rupiah
+
+Langkah selanjutnya adalah melakukan prediksi pada Testing data dengan menggunakan Training model. Sehingga diperoleh nilai Y prediksi sebagai berikut :
+```{r}
+library(caret)
+X_test<-data.frame(X_train = X_test)
+Y_pred <- predict(lm, data.frame(X_test))
+Y_pred
+```
+
+Nilai Y prediksi dapat dibandingkan dengan nilai Y aktual sebagai berikut :
+```{r}
+Y_test
+```
+
+## Uji Asumsi
+Langkah selanjutnya adalah melakukan uji asumsi, sebagai berikut :
+```{r}
+#Uji Asumsi Kenormalan
+residual <- resid(lm)
+shapiro.test(residual)
+```
+Hipotesis :
+
+$H_0$ : Residual menyebar normal
+
+$H_1$ : Residual tidak menyebar normal
+
+Dapat dilihat nilai p-value = 0,1616 > alpha = 0,05 hal ini berati Terima $H_0$, sehingga residual menyebar normal.
+
+```{r}
+#Uji Autokorelasi
+library(lmtest)
+dwtest(lm, data=salary_train)
+```
+Hipotesis :
+
+$H_0$ : Tidak ada autokorelasi
+
+$H_1$ : Ada autokorelasi
+
+Dapat dilihat nilai p-value = 0,01941 < alpha = 0,05 hal ini berati Tolak $H_0$, sehingga tidak ada autokorelasi.
+
+```{r}
+#Uji Heteroskedastisitas
+bptest(lm, data = salary_train)
+```
+Hipotesis :
+
+$H_0$ : Tidak ada heteroskedastisitas
+
+$H_1$ : Ada heteroskedastisitas
+
+Dapat dilihat nilai p-value = 0,05695 > alpha = 0,05 hal ini berati Terima $H_0$, sehingga tidak ada heteroskedastisitas.
+
+
+## Evaluasi Model
+Langkah selanjutnya adalah melakukan evaluasi terhadap model yang telah dibuat, dengan melihat nilai MSE dan $R^2$ sebagai berikut :
+```{r}
+#Evaluasi Model
+library(Metrics)
+mse(Y_test, Y_pred)
+summary(lm)$r.squared
+```
+
+Sehingga diperoleh nilai $R^2$ adalah 0,966 hal ini berati sebesar 96,6% model dapat menjelaskan variabel YearsExperience dan Salary dan sebesar 3,4% dijelaskan oleh variabel - variabel lain diluar model. Hal ini berati model sudah cukup baik untuk digunakan. 
+
+Langkah selanjutnya adalah membuat plot data beserta garis linearnya, sebagai berikut :
+```{r, echo=FALSE}
+library(ggplot2)
+
+ggplot(salary_data,aes(X,Y))+
+  geom_point(col="blue", size = 2)+
+  geom_smooth(method = "lm", col="red", se=F)+
+  labs(title ="Plot Data YearsExperience Vs Salary",
+         x ="Years Experience (th)",
+         y ="Salary (ribu rp)")+
+  theme_minimal()
+```
