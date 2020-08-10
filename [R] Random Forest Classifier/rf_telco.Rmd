@@ -1,0 +1,248 @@
+---
+title: "Random Forest Classifier"
+output: html_document
+---
+
+Langkah pertama yang dilakukan adalah mengatur working directory pada R, serta tempatkan data yang tersedia pada file ini.
+
+```{r}
+setwd("D:\\DS\\R\\[R] Random Forest Classifier")
+getwd()
+
+rm(list=ls(all=TRUE))
+```
+
+##Input Data
+Langkah selanjutnya adalah menginput dataset, sebagai berikut :
+```{r}
+##Input Data
+telco <- read.csv("telco.csv", header = T)
+head(telco)
+```
+Karena variabel CustomerID bersifat unik dan tidak dapat digunakan, maka variabel ini dihilangkan terlebih dahulu dari dataset, sebagai berikut :
+```{r}
+telco <-telco[,-c(1:2)]
+head(telco)
+```
+
+## Eksplorasi Data
+Langkah selanjutnya adalah melakukan eksplorasi terhadap dataset, sebagai berikut :
+```{r}
+#Melihat struktur data
+str(telco)
+```
+Dari struktur data diatas, terlihat bahwa data sudah sesuai dengan type data dari masing - masing variabel, untuk variabel kategorik data bertipe factor, untuk variabel non-kategorik data bertipe integer/numerik.
+```{r}
+#Melihat apakah ada missing data
+summary(telco)
+table(is.na(telco))
+```
+Terlihat bahwa tidak terdapat missing data pada dataset. Selanjutnya adalah membuat pie chart untuk variabel Churn, sebagai berikut :
+```{r}
+#Pie Plot Variabel Churn
+library(dplyr)
+df_churn <- telco %>% 
+  select(Churn) %>% 
+  group_by(Churn) %>% 
+  summarise(Total = n())
+df_churn
+```
+```{r, echo=FALSE}
+library(ggplot2)
+ggplot(df_churn, aes(x="", y=Total, fill = Churn))+
+  geom_bar(stat = "identity")+
+  coord_polar(theta = "y")+
+  geom_text(aes(label=Total), position = position_stack(vjust=0.5))+
+  labs(title = "Pie Plot Churn Customer", ylab = "Churn")+
+  scale_fill_manual(values = c("#008B8B", "#EEC900"))
+```
+
+## Split Data
+Langkah selanjutnya adalah membagi data ke dalam Training data dan Testing data, sebagai berikut :
+```{r}
+##Split Data
+library(caTools)
+set.seed(123)
+Split <- sample.split(telco, SplitRatio = 0.7)
+Train <- subset(telco, Split==TRUE)
+Test <- subset(telco, Split==FALSE)
+```
+
+## Modeling Train Data (Default Parameter)
+Langkah selanjutnya adalah membuat model terhadap Training data dengan default parameter, dimana number of trees to grow (ntree = 500), dan	
+number of variables randomly sampled as candidates at each split (mtry=sqrt(p)) untuk classification, karena jumlah variabel prediktor dalam data ini ada 9 maka mtry = 3.  sebagai berikut :
+```{r}
+##Modeling Train Data (default parameter)
+library(randomForest)
+set.seed(222)
+rf_model1<-randomForest(Churn~., data = Train)
+rf_model1
+```
+Langkah selanjutnya adalah melakukan prediksi pada Testing data dengan menggunakan Training model, sebagai berikut :
+```{r}
+##Predict (default parameter)
+library(caret)
+p1_test <- predict(rf_model1, newdata = Test)
+p1_test_cm<-confusionMatrix(p1_test, Test$Churn)
+p1_test_cm
+```
+## Tuning Parameter
+Langkah selanjutnya adalah mencari nilai parameter mtry yang optimal untuk model random forest, ada beberapa cara untuk mencari parameter mtry yang optimal yakni sebagai berikut :
+
+### RandomSearch CV
+```{r}
+#Random Search CV
+set.seed(222)
+control <- trainControl(method = "repeatedcv",
+                        number = 10,
+                        repeats = 3,
+                        search = "random")
+rf_random <- train(Churn~.,
+                   data = telco,
+                   method = "rf",
+                   metric = "Accuracy",
+                   tuneLength = 10,
+                   trControl = control)
+rf_random
+```
+Dengan metode ini diperoleh best mtry adalah 2.
+
+### GridSearch CV
+```{r}
+#Grid Search CV
+control <- trainControl(method ="repeatedcv",
+                        number = 10,
+                        repeats = 3,
+                        search = "grid")
+set.seed(222)
+tunegrid <- expand.grid(.mtry=c(1:10))
+rf_gridsearch <- train(Churn~.,
+                       data = telco,
+                       method = "rf",
+                       metric = "Accuracy",
+                       tuneGrid = tunegrid,
+                       trControl = control)
+rf_gridsearch
+```
+Dengan metode ini diperoleh best mtry adalah 2.
+
+### TuneRF
+```{r, echo=FALSE}
+set.seed(222)
+bestmtry <- tuneRF(Train[,-11], Train[,11], stepFactor = 1.5, ntree = 500)
+```
+Dengan metode ini diperoleh best mtry adalah 2.
+
+Untuk mtry = 3 sudah dimodelkan pada model dengan default parameter, selanjutnya adalah memodelkan dengan mtry = 2 sebagai berikut :
+
+```{r}
+##Modeling Train Data (mtry=2)
+library(randomForest)
+set.seed(222)
+rf_model2<-randomForest(Churn~., data = Train, mtry=2)
+rf_model2
+##Predict (mtry=2)
+library(caret)
+p2_test <- predict(rf_model2, newdata = Test)
+p2_test_cm<-confusionMatrix(p2_test, Test$Churn)
+p2_test_cm
+```
+Dapat dilihat bahwa dengan mtry = 2 diperoleh nilai Accuracy-nya lebih besar dibanding dengan mtry = 3 pada model default parameter. Sehingga model yang dipilih adalah dengan mtry = 2.
+
+## Handling Imbalanced Data
+Selanjutnya, pada model mtry = 2 dapat dilihat bahwa dari model random forest dengan mtry = 2 diperoleh nilai Sensitivity dan Spesificity yang diperoleh jauh berbeda.Hal ini dikarenakan adanya permasalahan data tidak seimbang, dimana pada variabel Churn, terlihat bahwa customer yang memilih Churn (Yes = 1836) lebih sedikit dibanding customer yang memilih untuk tidak churn (No = 5114).
+
+Ada beberapa cara untuk mengatasi masalah ini, yakni sebagai berikut :
+
+### OverSampling
+```{r}
+##Mengatasi spesificity yang rendah karena imbalance data
+library(ROSE)
+##OverSampling
+table(Train$Churn)
+3286*2
+over <- ovun.sample(Churn~., data = Train, method = "over", N=6572)$data
+table(over$Churn)
+#Modeling Train Data (oversampling)
+library(randomForest)
+set.seed(222)
+rf_model2_over<-randomForest(Churn~., data = over, mtry=2)
+rf_model2_over
+#Predict (oversampling)
+library(caret)
+p2_test_over <- predict(rf_model2_over, newdata = Test)
+p2_test_over_cm<-confusionMatrix(p2_test_over, Test$Churn)
+p2_test_over_cm
+```
+
+### UnderSampling
+```{r}
+##UnderSampling
+1137*2
+under <- ovun.sample(Churn~., data = Train, method = "under", N=2274)$data
+table(under$Churn)
+#Modeling Train Data (undersampling)
+library(randomForest)
+set.seed(222)
+rf_model2_under<-randomForest(Churn~., data = under, mtry=2)
+rf_model2_under
+#Predict (undersampling)
+library(caret)
+p2_test_under <- predict(rf_model2_under, newdata = Test)
+p2_test_under_cm<-confusionMatrix(p2_test_under, Test$Churn)
+p2_test_under_cm
+```
+
+### SMOTE
+```{r}
+##SMOTE
+table(Train$Churn)
+library(DMwR)
+smote <- SMOTE(Churn~. , data =  Train, perc.over = 100, perc.under = 200)
+table(smote$Churn)
+#Modeling Train Data (smote)
+library(randomForest)
+set.seed(222)
+rf_model2_smote<-randomForest(Churn~., data = smote, mtry=2)
+rf_model2_smote
+#Predict (smote)
+library(caret)
+p2_test_smote<- predict(rf_model2_smote, newdata = Test)
+p2_test_smote_cm<-confusionMatrix(p2_test_smote, Test$Churn)
+p2_test_smote_cm
+```
+
+## Evaluasi Model
+Dari model tanpa mengatasi imbalanced data dan model dengan ketiga cara dalam mengatasi imbalanced data diatas, selanjutnya akan dipilih metode yang menghasilkan performance yang baik dengan melihat nilai AUC (Area Under the Curve) terbesar, yakni sebagai berikut :
+
+
+```{r}
+library(pROC)
+auc<- roc(Test$Churn, factor(p2_test, ordered =  TRUE))
+auc
+auc_over <- roc(Test$Churn, factor(p2_test_over, ordered =  TRUE))
+auc_over
+auc_under <- roc(Test$Churn, factor(p2_test_under, ordered =  TRUE))
+auc_under
+auc_smote <- roc(Test$Churn, factor(p2_test_smote, ordered =  TRUE))
+auc_smote
+```
+
+Berikut tabel ringkasan, untuk evaulasi keempat model diatas:
+```{r}
+nama_metode<-c("Tanpa Handling", "OverSampling", "UnderSampling", "SMOTE")
+accuracy <- c(p2_test_cm$overall[1], p2_test_over_cm$overall[1], p2_test_under_cm$overall[1], p2_test_smote_cm$overall[1])
+sensitivity <- c(p2_test_cm$overall[2], p2_test_over_cm$overall[2], p2_test_under_cm$overall[2], p2_test_smote_cm$overall[2])
+specitifity <- c(p2_test_cm$overall[3], p2_test_over_cm$overall[3], p2_test_under_cm$overall[3], p2_test_smote_cm$overall[3])
+auc <- c(auc$auc, auc_over$auc, auc_under$auc, auc_smote$auc)
+data.frame(nama_metode, accuracy, sensitivity, specitifity, auc)
+```
+Jadi model random forest yang dipilih untuk kasus data ini adalah model dengan parameter mtry = 2, ntree = 500 dengan handling imbalanced data dengan metode undersampling.
+
+## Importance Variable
+Selanjutnya akan dilihat variabel mana yang paling penting dalam memengaruhi customer untuk Churn, yakni sebagai berikut :
+```{r, echo=FALSE}
+varImpPlot(rf_model2_under,
+           main = "Importance Variable")
+```
+Terlihat bahwa variabel yang paling berpengaruh terhadap keputusan customer untuk Churn adalah tenure, TotalCharges dan MonthlyCharges.
