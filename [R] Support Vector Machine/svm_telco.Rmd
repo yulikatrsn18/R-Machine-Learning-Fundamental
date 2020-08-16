@@ -1,0 +1,273 @@
+---
+title: "Support Vector Machine Classifier"
+output: html_document
+---
+
+Langkah pertama yang dilakukan adalah mengatur working directory pada R, serta tempatkan data yang tersedia pada file ini.
+
+```{r}
+setwd("D:\\DS\\R\\[R] Support Vector Machine")
+getwd()
+
+rm(list=ls(all=TRUE))
+```
+
+
+##Input Data
+Langkah selanjutnya adalah menginput dataset, sebagai berikut :
+```{r}
+##Input Data
+telco <- read.csv("telco.csv", header = T)
+head(telco)
+```
+Karena variabel CustomerID bersifat unik dan tidak dapat digunakan, maka variabel ini dihilangkan terlebih dahulu dari dataset, sebagai berikut :
+```{r}
+telco <-telco[,-c(1:2)]
+head(telco)
+```
+## Eksplorasi Data
+Langkah selanjutnya adalah melakukan eksplorasi terhadap dataset, sebagai berikut :
+```{r}
+#Melihat struktur data
+str(telco)
+```
+Dari struktur data diatas, terlihat bahwa data sudah sesuai dengan type data dari masing - masing variabel, untuk variabel kategorik data bertipe factor, untuk variabel non-kategorik data bertipe integer/numerik.
+```{r}
+summary(telco)
+```
+Pada data bertipe numerik maupun integer yakni variabel tenure, MonthlyCharges, dan TotalCharges memiliki rentang pengukuran yang berbeda. Hal ini berimplikasi pada missclassification pada SVM. Sehingga variabel ini harus distandarsari terlebih dahulu.
+```{r}
+#Menstandarisasi Data
+telco[,c(4, 9:10)]<-scale(telco[,c(4, 9:10)])
+summary(telco)
+attach(telco)
+```
+```{r}
+#Plot Data
+#Pie Plot Variabel Churn
+library(dplyr)
+df_churn <- telco %>% 
+  select(Churn) %>% 
+  group_by(Churn) %>% 
+  summarise(Total = n())
+df_churn
+
+
+library(ggplot2)
+ggplot(df_churn, aes(x="", y=Total, fill = Churn))+
+  geom_bar(stat = "identity")+
+  coord_polar(theta = "y")+
+  geom_text(aes(label=Total), position = position_stack(vjust=0.5))+
+  labs(title = "Pie Plot Churn Customer", ylab = "Churn")
+```
+
+
+## Split Data
+Langkah selanjutnya adalah membagi data ke dalam Training data dan Testing data, sebagai berikut :
+```{r}
+##Split Data
+library(caTools)
+set.seed(123)
+Split <- sample.split(telco, SplitRatio = 0.7)
+Train <- subset(telco, Split==TRUE)
+Test <- subset(telco, Split==FALSE)
+```
+
+## Modeling Train Data (Default Parameter)
+```{r}
+library(e1071)
+svm_model <- svm(Churn~. , data = Train)
+summary(svm_model)
+```
+
+Default parameter menggunakan SVM-type C-classification karena variabel respon (Churn) berupa katerogikal variabel, dengan kernel radial dan cost = 1.
+Langkah selanjutnya adalah melakukan prediksi pada Testing data dengan menggunakan Training model, sebagai berikut :
+```{r}
+##Predict (default parameter)
+library(caret)
+p_train <- predict(svm_model)
+p_train_cm<-confusionMatrix(p_train, Train$Churn)
+p_train_cm
+
+p_test <- predict(svm_model, newdata = Test)
+p_test_cm<-confusionMatrix(p_test, Test$Churn)
+p_test_cm
+```
+Selanjutnya akan dibandingan dengan menggunakan kernel "linear", "polynomial", "sigmoid".
+```{r}
+#Kernel linear
+library(e1071)
+svm_model1 <- svm(Churn~. , data = Train, kernel = "linear")
+summary(svm_model1)
+#Prediksi
+p1_test <- predict(svm_model1, newdata = Test)
+p1_test_cm<-confusionMatrix(p1_test, Test$Churn)
+p1_test_cm
+```
+```{r}
+#Kernel polynomial
+svm_model2 <- svm(Churn~. , data = Train, kernel = "polynomial")
+summary(svm_model2)
+#Prediksi
+p2_test <- predict(svm_model2, newdata = Test)
+p2_test_cm<-confusionMatrix(p2_test, Test$Churn)
+p2_test_cm
+```
+```{r}
+#Kernel sigmoid
+svm_model3 <- svm(Churn~. , data = Train, kernel = "sigmoid")
+summary(svm_model3)
+#Prediksi
+p3_test <- predict(svm_model3, newdata = Test)
+p3_test_cm<-confusionMatrix(p3_test, Test$Churn)
+p3_test_cm
+```
+
+Dari keempat kernel yang digunakan, kernel yang menghasilkan nilai Accuracy dan Kappa terbesar adalah kernel "radial" pada default model.
+
+## Tuning Parameter
+Langkah selanjutnya adalah mencari nilai parameter yang optimal, yakni nilai parameter gamma dan cost, ada beberapa cara untuk mencari parameter yang optimal, salah satunya adalah dengan metode GridSearch, metode ini sudah tersedia dalam library "e1071", sebagai berikut :
+
+### GridSearch CV
+```{r}
+Tune <- tune(svm, Churn ~ .,
+              data = Train, type = "C-classification", kernel = "radial",
+              ranges = list(gamma = c(0.5, 1.0, 1.5), cost = 10^(0.1:1)))
+summary(Tune)
+```
+
+### RandomSearch CV
+```{r}
+#Random Search CV
+set.seed(222)
+control <- trainControl(method = "repeatedcv",
+                        number = 10,
+                        repeats = 3,
+                        search = "random")
+svm_random <- train(Churn~.,
+                   data = telco,
+                   method = "svmRadial",
+                   metric = "Accuracy",
+                   tuneLength = 10,
+                   trControl = control)
+svm_random
+```
+
+## Modeling Train Data (Tuning Parameter)
+```{r}
+#GridSearch
+svm_model4 <- svm(Churn~. , data = Train, kernel = "radial", gamma = 0.5, cost = 1.258925	)
+summary(svm_model4)
+#Prediksi
+p4_test <- predict(svm_model4, newdata = Test)
+p4_test_cm<-confusionMatrix(p4_test, Test$Churn)
+p4_test_cm
+```
+
+```{r}
+#RandomSearch
+svm_model5 <- svm(Churn~. , data = Train, kernel = "radial", gamma = 0.09904983, cost = 3.498066	)
+summary(svm_model5)
+#Prediksi
+p5_test <- predict(svm_model5, newdata = Test)
+p5_test_cm<-confusionMatrix(p5_test, Test$Churn)
+p5_test_cm
+```
+Dibandingkan dengan model default parameter dan model dengan tuning parameter RandomSearch, nilai Accuracy dan nilai Kappa yang lebih besar dihasilkan oleh model dengan tuning parameter metode GridSearch, sehingga parameter optimal yang digunakan adalah dengan metode GridSearch.
+
+## Handling Imbalanced Data
+Selanjutnya, pada model dengan tuning parameter GridSearch, diperoleh nilai Sensitivity dan Spesificity jauh berbeda.Hal ini dikarenakan adanya permasalahan data tidak seimbang, dimana pada variabel Churn, terlihat bahwa customer yang memilih Churn (Yes = 1836) lebih sedikit dibanding customer yang memilih untuk tidak churn (No = 5114).
+
+Ada beberapa cara untuk mengatasi masalah ini, yakni sebagai berikut :
+
+### OverSampling
+```{r}
+##Mengatasi spesificity yang rendah karena imbalance data
+library(ROSE)
+##OverSampling
+table(Train$Churn)
+3282*2
+over <- ovun.sample(Churn~., data = Train, method = "over", N=6564)$data
+table(over$Churn)
+#Modeling Train Data (oversampling)
+svm_model4_over <- svm(Churn~. , data = over, kernel = "radial", gamma = 0.5, cost = 1.258925	)
+summary(svm_model4_over)
+#Prediksi (oversampling)
+p4_test_over <- predict(svm_model4_over, newdata = Test)
+p4_test_cm_over<-confusionMatrix(p4_test_over, Test$Churn)
+p4_test_cm_over
+```
+
+### UnderSampling
+```{r}
+##UnderSampling
+table(Train$Churn)
+1141*2
+under <- ovun.sample(Churn~., data = Train, method = "under", N=2282)$data
+table(under$Churn)
+#Modeling Train Data (undersampling)
+svm_model4_under <- svm(Churn~. , data = under, kernel = "radial", gamma = 0.5, cost = 1.258925	)
+summary(svm_model4_under)
+#Prediksi (undersampling)
+p4_test_under<- predict(svm_model4_under, newdata = Test)
+p4_test_cm_under<-confusionMatrix(p4_test_under, Test$Churn)
+p4_test_cm_under
+```
+
+### SMOTE
+```{r}
+##SMOTE
+table(Train$Churn)
+library(DMwR)
+smote <- SMOTE(Churn~. , data =  Train, perc.over = 100, perc.under = 200)
+table(smote$Churn)
+#Modeling Train Data (smote)
+svm_model4_smote <- svm(Churn~. , data = smote, kernel = "radial", gamma = 0.5, cost = 1.258925	)
+summary(svm_model4_smote)
+#Prediksi (smote)
+p4_test_smote<- predict(svm_model4_smote, newdata = Test)
+p4_test_cm_smote<-confusionMatrix(p4_test_smote, Test$Churn)
+p4_test_cm_smote
+```
+
+## Evaluasi Model
+Dari model tanpa mengatasi imbalanced data dan model dengan ketiga cara dalam mengatasi imbalanced data diatas, selanjutnya akan dipilih metode yang menghasilkan performance yang baik dengan melihat nilai AUC (Area Under the Curve) terbesar, yakni sebagai berikut :
+
+
+```{r}
+library(pROC)
+auc<- roc(Test$Churn, factor(p4_test, ordered =  TRUE))
+auc
+auc_over <- roc(Test$Churn, factor(p4_test_over, ordered =  TRUE))
+auc_over
+auc_under <- roc(Test$Churn, factor(p4_test_under, ordered =  TRUE))
+auc_under
+auc_smote <- roc(Test$Churn, factor(p4_test_smote, ordered =  TRUE))
+auc_smote
+```
+
+Berikut tabel ringkasan, untuk evaulasi keempat model diatas:
+```{r}
+nama_metode<-c("Tanpa Handling", "OverSampling", "UnderSampling", "SMOTE")
+accuracy <- c(p4_test_cm$overall[1], p4_test_cm_over$overall[1], p4_test_cm_under$overall[1], p4_test_cm_smote$overall[1])
+sensitivity <- c(p4_test_cm$overall[2], p4_test_cm_over$overall[2], p4_test_cm_under$overall[2], p4_test_cm_smote$overall[2])
+specitifity <- c(p4_test_cm$overall[3], p4_test_cm_over$overall[3], p4_test_cm_under$overall[3], p4_test_cm_smote$overall[3])
+auc <- c(auc$auc, auc_over$auc, auc_under$auc, auc_smote$auc)
+data.frame(nama_metode, accuracy, sensitivity, specitifity, auc)
+```
+
+Jadi model SVM yang dipilih untuk kasus data ini adalah model dengan parameter gamma = 0.5, cost = 1.258925, dan kernel = "radial" dengan handling imbalanced data dengan metode undersampling.
+
+## Importance Variable
+Selanjutnya akan dilihat variabel mana yang paling penting dalam memengaruhi customer untuk Churn, yakni sebagai berikut :
+
+```{r}
+library(rminer)
+Model <- fit(Churn~., data=Train, model="svm", kpar=list(sigma=0.5), C=1.258925)
+svm.imp <- Importance(Model, data=Train)
+L=list(runs=1,sen=t(svm.imp$imp),
+      sresponses=svm.imp$sresponses)
+mgraph(L,graph="IMP",leg=names(Train), col=c("#8FBC8F"),Grid=10)
+```
+
+Terlihat bahwa variabel yang paling berpengaruh terhadap keputusan customer untuk Churn adalah MonthlyCharges,TotalCharges dan tenure.
